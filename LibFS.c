@@ -7,6 +7,8 @@ int osErrno;
 int 
 FS_Boot(char *path)
 {
+	//This is a test
+
     printf("FS_Boot %s\n", path);
 
     // oops, check for errors
