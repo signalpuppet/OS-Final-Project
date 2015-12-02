@@ -7,8 +7,20 @@ int osErrno;
 int 
 FS_Boot(char *path)
 {
-	//This is a test
-
+    // Order of things
+    // First check to see if disk exists
+        // If it exists then use Disk_load()
+        // Then check to make sure that it is a valid disk, the file size should be equal to NUM_SECTORS x SECTOR_SIZE.
+        // All superblock info should be as described
+            // If any of this is wrong it should fail
+    
+    // If disk doesn't exist
+        // Create a new disk, init its superblock and other structs, and create empty root directory
+        // In this case use Disk_Init()
+        // Then a few Disk_Write()
+        // Then a Disk_Save()
+    
+    
     printf("FS_Boot %s\n", path);
 
     // oops, check for errors
@@ -19,7 +31,11 @@ FS_Boot(char *path)
     }
 
     // do all of the other stuff needed...
-
+    
+    
+    
+    
+    
     return 0;
 }
 
