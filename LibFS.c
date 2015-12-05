@@ -12,6 +12,8 @@ int osErrno;
 //129th to the very end are data blocks.
 int inode_size = 256;
 char globalPointer[] = 512*1000;
+int MAX_FILES = 1000;
+int MAX_FILES_COUNTER = 0;
 
 int 
 FS_Boot(char *path)
@@ -140,6 +142,7 @@ File_Create(char *file)
             {
                 slash_index = i;
                 slash_num += 1;
+                
             }
             else
             {
@@ -201,7 +204,7 @@ File_Create(char *file)
     }
     
     //now the parents exist, we write the directory we asked to
-    if(slash_num == 0)
+    if(slash_num == 0 && MAX_FILES_COUNTER < MAX_FILES)
     {
         //find the first available inode block in inode bitmap and label it as occupied
         Disk_Read(1,ibit);
@@ -311,6 +314,7 @@ File_Create(char *file)
                 break;
             }
         }
+        MAX_FILES_COUNTER ++;
     }
     printf("FS_Create\n");
     return 0;
@@ -394,6 +398,7 @@ int
 Dir_Check(int d,int x,char* path){
     char inode[]=512, dblock[]=512;
     
+    
     //because each sector has two inode blocks, and there are 3 sectors in front of inode blocks, we find which sector our inode block is in
     int entry_start = 0;
     
@@ -435,6 +440,7 @@ Dir_Check(int d,int x,char* path){
         {
             entry_start += 20;
         }
+        
     }
     
     if(dblock[entry_start] == 0)
@@ -500,7 +506,7 @@ Dir_Create(char *path)
     }
     
     //now the parents exist, we write the directory we asked to
-    if(slash_num == 0)
+    if(slash_num == 0 && MAX_FILES_COUNTER < MAX_FILES)
     {
         //find the first available inode block in inode bitmap and label it as occupied
         Disk_Read(1,ibit);
@@ -610,6 +616,7 @@ Dir_Create(char *path)
                 break;
             }
         }
+        MAX_FILES_COUNTER ++;
     }
     printf("Dir_Create %s\n", path);
     return 0;
