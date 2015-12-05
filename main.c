@@ -5,7 +5,7 @@
 void 
 usage(char *prog)
 {
-    fprintf(stderr, "usage: %s <disk image file>\n", prog);
+    fprintf(stderr, "usage: %s <disk image file> I added stuff here to check\n", prog);
     exit(1);
 }
 
