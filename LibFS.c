@@ -12,8 +12,29 @@ int osErrno;
 //129th to the very end are data blocks.
 int inode_size = 256;
 char globalPointer[] = 512*1000;
+
+//declare a global character
+char* globalPath;
+
 int MAX_FILES = 1000;
 int MAX_FILES_COUNTER = 0;
+//char OPEN_FILE_TABLE[] = 256;
+int OPEN_FILE_TABLE_COUNTER = 0;
+
+char *Dir_path;
+
+
+enum FILETABLE { ft_int , ft_int , ft_filepath , ft_int , ft_filename};
+struct FTAble{
+    FILETABLE type;
+    union {
+        int entry;
+        int inode;
+        int *filepointer[30];
+        int opencounter;
+        char *file;
+    };
+}OPEN_FILE_TABLE[256];
 
 int 
 FS_Boot(char *path)
@@ -98,10 +119,6 @@ FS_Boot(char *path)
 }
 
 
-
-
-//declare a global character
-char* globalPath;
 int
 FS_Sync()
 {
@@ -142,7 +159,6 @@ File_Create(char *file)
             {
                 slash_index = i;
                 slash_num += 1;
-                
             }
             else
             {
@@ -325,8 +341,103 @@ File_Create(char *file)
 int
 File_Open(char *file)
 {
+    int NumberOfTimesFileIsOpen = 0;
+    
+    int slash_index = 1;
+    int slash_num = 1;
+    int slash_num_Parent = 0;
+    int FileInode;
+    int ParentFileInode;
     
     
+    char inode[]=512, dblock[]=512, parent_data_block[] = 512;
+    //because each sector has two inode blocks, and there are 3 sectors in front of inode blocks, we find which sector our inode block is in
+    int entry_start = 0;
+     //declare an int to track which index in the parent datablock should we compare
+
+
+    
+    /// This is the path look up
+    
+    for ( int i =1, i<sizeof(file), i++)
+    {
+        if(file[i] == "/")
+        {
+            if (slash_num == 0)
+            {
+                FileInode = Dir_check(slash_num,directory_check);
+                
+            }
+            if(n != -1)
+            {
+                slash_index = i;
+                slash_num += 1;
+                
+            }
+            else
+            {
+                //THis probably needs changed
+                osErrno = E_CREATE;
+                return -1;
+            }
+        }
+        
+    }
+    
+    char *buffer
+    
+    // This means I am reading in the sector (n+6)/2 and putting it into a buffer called inode which is 512 in size
+    Disk_read((n+6)/2),inode)
+    // This is telling it to start to read at the fourth sector of inode and store it into a buffer dblock which is 512 in size
+    if((n+6)%2 == 0)
+    {
+        Disk_Read(inode[2],dblock);
+    }
+    // This is looping through all 512 Inode blocks?
+    for (int i = 2, i < 512, i++){
+        // Inode[i] is an inode block and I am checking to see if its != -1 and if true I want to do into it
+        if (inode[i] != -1){
+            int x = 0;
+            
+            while(datablock[x] != "\0")
+            {
+                NameBuffer[x] = datablock [x];
+                x++;
+            }
+        }
+    }
+    
+    
+    
+                //File table
+    // first should be entry #
+    // Second is the inode #
+    // third is the file pointer
+    // Last is if it is if the file is open or not
+    
+    //int entry;
+    //int inode;
+    //char *path;
+    //int opencounter;
+    //char *file;
+    
+    // OPEN_FILE_TABLE[i] = [i,n,path,FileWriteable];
+
+    for (int i = 0, i <sizeof(OPEN_FILE_TABLE), i++){
+        if (OPEN_FILE_TABLE[i].entry == i && OPEN_FILE_TABLE[i].inode != n){
+            OPEN_FILE_TABLE[i].entry = i;
+            OPEN_FILE_TABLE[i].inode = n;
+            
+            OPEN_FILE_TABLE[i].path = file;
+            OPEN_FILE_TABLE[i].opencounter = i+1;
+            OPEN_FILE_TABLE[i].file = file;
+            
+        }
+        
+        
+        
+        
+    }
     
     
     
@@ -387,22 +498,24 @@ File_Unlink(char *file)
  One is the parent inode number
  And one is the path
  
- 
- x = slash_index
- 
+ int x = parent inode
+ int d = slash index
+ path = path
  
  */
 
 
 int
 Dir_Check(int d,int x,char* path){
+    
+    
     char inode[]=512, dblock[]=512;
     
     
     //because each sector has two inode blocks, and there are 3 sectors in front of inode blocks, we find which sector our inode block is in
     int entry_start = 0;
-    
     //declare an int to track which index in the parent datablock should we compare
+    
     Disk_Read((d+6)/2,inode)
     if(d%2 == 0)
     {//this tells us our inode block start at the beginning of the sector
@@ -455,6 +568,7 @@ Dir_Check(int d,int x,char* path){
 int
 Dir_Create(char *path)
 {
+    
     char ibit[]=512, inode[]=512,databit[]=512, datablock[]=512, parent_inode_block[]=512; parent_data_block[]=512;
     //declare a buffer for inode bitmap and inode block and datablock to read and write
     
@@ -629,6 +743,7 @@ Dir_Size(char *path)
     printf("Dir_Size\n");
     int parent_inode = 0;
     int slash_num = 1, slash_index = 0;
+    
     //slash_num is 1 here because we are tracking the current directory, not the parent's
     char ibuf[]=512;
     for (int i = 1, i<sizeof(path)+1,i++)
