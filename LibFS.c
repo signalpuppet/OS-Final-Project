@@ -397,8 +397,8 @@ File_Open(char *file)
     for (int i = 2, i < 512, i++){
         // Inode[i] is an inode block and I am checking to see if its != -1 and if true I want to do into it
         if (inode[i] != -1){
+            disk_read(inode[1],bufferofsomekind)
             int x = 0;
-            
             while(datablock[x] != "\0")
             {
                 NameBuffer[x] = datablock [x];
