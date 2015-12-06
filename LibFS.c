@@ -21,19 +21,19 @@ int MAX_FILES_COUNTER = 0;
 //char OPEN_FILE_TABLE[] = 256;
 int OPEN_FILE_TABLE_COUNTER = 0;
 
-char *Dir_path;
+char* Dir_path;
 
 
-//enum FILETABLE { ft_int , ft_int2 , ft_filepath , ft_int3 , ft_filename};
+enum FILETABLE { ft_int , ft_int2 , ft_filepath , ft_int3 , ft_filename};
 struct FTAble{
-    //FILETABLE enum;
-    //union {
-    int entry;
-    int inode;
-    int *filepointer[30];
-    int opencounter;
-    char *file;
-    //};
+    //enum FILETABLE;
+    union {
+        int entry;
+        int inode;
+        int *filepointer[30];
+        int opencounter;
+        char *file;
+    };
 }OPEN_FILE_TABLE[256];
 
 int
@@ -41,7 +41,7 @@ FS_Boot(char *path)
 {
     globalPath = path;
     printf("FS_Boot %s\n", path);
-    
+    int p;
     if(path == NULL){//when path doesn't exist
         // oops, check for errors
         if (Disk_Init() == -1) {
@@ -51,25 +51,30 @@ FS_Boot(char *path)
         }
         
         //construct superblock
-        char wbuf[512];//declare a buffer has the same size with a sector for writing
-        wbuf[0]=7;//The magic number we choose for super block
-        Disk_Write(0, wbuf);//Write the super blcok
+        //declare a buffer has the same size with a sector for writing
+        char wbuf[512];
+        //The magic number we choose for super block
+        wbuf[0]=7;
+        //Write the super blcok
+        p = Disk_Write(0, wbuf);
+        
+        printf("P is: %i\n", p);
         
         //initialize all of the inode blocks and give them value of -1
         char ibuf[512];//declare a buffer to use for inode block and "/" construction
         
         float j;
         
-        for(j = 0, j<125,j++){
+        for(j = 0; j<125; j++){
             ibuf[0]=0;
             ibuf[1]=0;
-            for (int i=2, i<inode_size, i++){
+            for (int i=2; i<inode_size; i++){
                 ibuf[i] = -1;
             }
             ibuf[0+inode_size]=0;
             ibuf[1+inode_size]=0;
-            for (int k=2+inode_size, k<512, k++){
-                idbuf[k] = -1;
+            for (int k=2+inode_size; k<512; k++){
+                ibuf[k] = -1;
             }
             Disk_Write(j+3,ibuf);
         }
@@ -82,7 +87,7 @@ FS_Boot(char *path)
         ibuf[0]=0;
         ibuf[1]=1;
         ibuf[2]=0;
-        Disk_Write(3,ibuf)
+        Disk_Write(3,ibuf);
         //change the first inode block, size 0 and type directory, pointing to datablock 128
         
         //construct directory "/" in data block
@@ -146,16 +151,17 @@ File_Create(char *file)
     int slash_index = 1;
     int slash_num = 1;
     int n;
+    char ibit[512], inode[512],databit[512], datablock[512], parent_inode_block[512], parent_data_block[512];
     
     /// This tells is for checking the direcoty and returns # if they match and -1 if they don't
     
-    for ( int i =1, i<sizeof(file), i++)
+    for ( int i =1; i<sizeof(file); i++)
     {
         if(file[i] == "/")
         {
             if (slash_num == 0)
             {
-                n = Dir_check(slash_num,directory_check);
+                n = Dir_check(slash_num,slash_index,file);
                 
             }
             if(n != -1)
@@ -172,23 +178,10 @@ File_Create(char *file)
         }
     }
     
-    char ibit[512], inode[512],databit[512], datablock[512], parent_inode_block[512], parent_data_block[512];
-    //declare a buffer for inode bitmap and inode block and datablock to read and write
-    int slash_num =0,slash_index=0;
-    //declare an int to track which layer of directory has been created, and where the previous slash is
-    
-    //find how many levels of directory are in the path
-    for (int i = 1, i<sizeof(path)+1,i++)
-    {
-        if(path[i] = "/")
-        {
-            slash_num+=1;
-        }
-    }
     
     int parent_inode = 0;
     //initialize parent inode number to be 0
-    char parent_inodebuf[] = slash_num+1;
+    char parent_inodebuf[slash_num+1];
     //build a buffer contains all of the parent inode numbers if the layer is more than 1
     parent_inodebuf[slash_num] = 0;
     //initialize the last number of the buffer to be 0
@@ -196,7 +189,7 @@ File_Create(char *file)
     //find the parent inode number using check function
     while(slash_num>0)
     {
-        int n = Dir_Check(parent_inode,slash_index,path);
+        int n = Dir_Check(parent_inode,slash_index, file);
         // n is the inode #
         if(n==-1) // the basic layer has not yet created
         {
@@ -205,9 +198,9 @@ File_Create(char *file)
         }
         else
         {
-            for (int i = slash_index, i<sizeof(path),i++)
+            for (int i = slash_index; i<sizeo(file); i++)
             {
-                if(path[i+1] = "/")
+                if(file[i+1] = "/")
                 {
                     slash_index = i;
                     slash_num -= 1;
@@ -226,7 +219,7 @@ File_Create(char *file)
     {
         //find the first available inode block in inode bitmap and label it as occupied
         Disk_Read(1,ibit);
-        for(int j =1, j<512, j++)
+        for(int j =1; j<512; j++)
         {
             if(ibit[j] == 0)
             {
@@ -235,8 +228,9 @@ File_Create(char *file)
                 
                 //find the first available data block in data bitmap
                 Disk_Read(2,databit);
-                for(int k=0, k<512, k++)
+                for(int k=0; k<512; k++)
                 {
+                    int x;
                     if(databit[k] == 0)
                     {
                         databit[k] = 1;//change the found data block occupied in data bitmap
@@ -245,9 +239,9 @@ File_Create(char *file)
                         //find the data block we found,first starts at 128
                         Disk_Read(k+128,datablock);
                         int x = 0;
-                        while(x<sizeof(path)-slash_index-1)
+                        while(x<sizeof(file)-slash_index-1)
                         {
-                            datablock[x] = path[x+slash_index+1];
+                            datablock[x] = file[x+slash_index+1];
                             //write the name of the directory to datablock
                             x++;
                         }
@@ -260,8 +254,9 @@ File_Create(char *file)
                     }
                     
                     //now write the information(entry) in the parent datablock
+                    int w;
                     Disk_Read((n+6)/2,parent_inode_block);
-                    for(int w = 2, w<32, w++)
+                    for(w = 2; w < 32; w++)
                     {
                         if((n+6)%2 == 0)
                         {
@@ -272,7 +267,7 @@ File_Create(char *file)
                             Disk_Read((parent_inode_block[w+256]),parent_data_block);
                         }
                         int counter = 0;
-                        for (int q = 0, q<512,q++)
+                        for (int q = 0; q<512; q++)
                         {
                             if (parent_data_block[q] == "\0");
                             {
@@ -287,9 +282,9 @@ File_Create(char *file)
                         if(counter<(512-20))
                         {
                             int y = 0;
-                            while( y<(sizeof(path)-slash_index-1))
+                            while( y<(sizeof(file)-slash_index-1))
                             {
-                                parent_data_block[counter+x] = path[x+slash_index+1];
+                                parent_data_block[counter+x] = file[x+slash_index+1];
                                 //write the name of the directory to datablock
                                 y++;
                             }
@@ -352,7 +347,7 @@ File_Open(char *file)
     int ParentFileInode;
     
     
-    char inode[]=512, dblock[]=512, parent_data_block[] = 512;
+    char inode[512], dblock[512], parent_data_block[512];
     //because each sector has two inode blocks, and there are 3 sectors in front of inode blocks, we find which sector our inode block is in
     int entry_start = 0;
     //declare an int to track which index in the parent datablock should we compare
@@ -361,16 +356,16 @@ File_Open(char *file)
     
     /// This is the path look up
     
-    for ( int i =1, i<sizeof(file), i++)
+    for ( int i =1; i<sizeof(file); i++)
     {
         if(file[i] == "/")
         {
             if (slash_num == 0)
             {
-                FileInode = Dir_check(slash_num,directory_check);
+                FileInode = Dir_check(slash_num,slash_index,file);
                 
             }
-            if(n != -1)
+            if(FileInode != -1)
             {
                 slash_index = i;
                 slash_num += 1;
@@ -386,24 +381,25 @@ File_Open(char *file)
         
     }
     
-    char *buffer
+    char *buffer[512];
+    char *NameBuffer[30];
     
     // This means I am reading in the sector (n+6)/2 and putting it into a buffer called inode which is 512 in size
-    Disk_read((n+6)/2),inode)
+    Disk_read(((FileInode+6)/2),inode);
     // This is telling it to start to read at the fourth sector of inode and store it into a buffer dblock which is 512 in size
-    if((n+6)%2 == 0)
+    if((FileInode+6)%2 == 0)
     {
         Disk_Read(inode[2],dblock);
     }
     // This is looping through all 512 Inode blocks?
-    for (int i = 2, i < 512, i++){
+    for (int i = 2; i < 512; i++){
         // Inode[i] is an inode block and I am checking to see if its != -1 and if true I want to do into it
         if (inode[i] != -1){
-            disk_read(inode[1],bufferofsomekind)
+            disk_read(inode[1],buffer);
             int x = 0;
-            while(datablock[x] != "\0")
+            while(buffer[x] != "\0")
             {
-                NameBuffer[x] = datablock [x];
+                NameBuffer[x] = buffer[x];
                 x++;
             }
         }
@@ -425,22 +421,23 @@ File_Open(char *file)
     
     // OPEN_FILE_TABLE[i] = [i,n,path,FileWriteable];
     
-    for (int i = 0, i <sizeof(OPEN_FILE_TABLE), i++){
-        if (OPEN_FILE_TABLE[i].entry == i && OPEN_FILE_TABLE[i].inode != n){
-            OPEN_FILE_TABLE[i].entry = i;
-            OPEN_FILE_TABLE[i].inode = n;
-            
-            OPEN_FILE_TABLE[i].path = file;
-            OPEN_FILE_TABLE[i].opencounter = i+1;
-            OPEN_FILE_TABLE[i].file = file;
-            
-        }
-        
-        
-        
-        
-    }
-    
+    /*
+     for (int i = 0; i <sizeof(OPEN_FILE_TABLE); i++){
+     if (OPEN_FILE_TABLE[i].entry == i && OPEN_FILE_TABLE[i].inode != n){
+     OPEN_FILE_TABLE[i].entry = i;
+     OPEN_FILE_TABLE[i].inode = n;
+     
+     OPEN_FILE_TABLE[i].path = file;
+     OPEN_FILE_TABLE[i].opencounter = i+1;
+     OPEN_FILE_TABLE[i].file = file;
+     
+     }
+     
+     
+     
+     
+     }
+     */
     
     
     
@@ -518,7 +515,7 @@ Dir_Check(int d,int x,char* path){
     int entry_start = 0;
     //declare an int to track which index in the parent datablock should we compare
     
-    Disk_Read((d+6)/2,inode)
+    Disk_Read((d+6)/2,inode);
     if(d%2 == 0)
     {//this tells us our inode block start at the beginning of the sector
         Disk_Read(inode[2],dblock);
@@ -527,7 +524,7 @@ Dir_Check(int d,int x,char* path){
     {
         Disk_Read(inode[258],dblock);
     }
-    for(int i = 0, i<512, i++)
+    for(int i = 0; i<512; i++)
     {
         if(dblock[i] == "\0")
         {
@@ -562,6 +559,7 @@ Dir_Check(int d,int x,char* path){
     {
         return -1;
     }
+    return 0;
 }
 
 
@@ -578,7 +576,7 @@ Dir_Create(char *path)
     //declare an int to track which layer of directory has been created, and where the previous slash is
     
     //find how many levels of directory are in the path
-    for (int i = 1, i<sizeof(path)+1,i++)
+    for (int i = 1; i<sizeof(path)+1; i++)
     {
         if(path[i] = "/")
         {
@@ -588,15 +586,17 @@ Dir_Create(char *path)
     
     int parent_inode = 0;
     //initialize parent inode number to be 0
-    char parent_inodebuf[] = slash_num+1;
+    char parent_inodebuf[slash_num+1];
     //build a buffer contains all of the parent inode numbers if the layer is more than 1
     parent_inodebuf[slash_num] = 0;
     //initialize the last number of the buffer to be 0
     
+    int n;
+    
     //find the parent inode number using check function
     while(slash_num>0)
     {
-        int n = Dir_Check(parent_inode,slash_index,path);
+        n = Dir_Check(parent_inode,slash_index,path);
         // n is the inode #
         if(n==-1) // the basic layer has not yet created
         {
@@ -605,7 +605,7 @@ Dir_Create(char *path)
         }
         else
         {
-            for (int i = slash_index, i<sizeof(path),i++)
+            for (int i = slash_index; i<sizeof(path); i++)
             {
                 if(path[i+1] = "/")
                 {
@@ -626,7 +626,7 @@ Dir_Create(char *path)
     {
         //find the first available inode block in inode bitmap and label it as occupied
         Disk_Read(1,ibit);
-        for(int j =1, j<512, j++)
+        for(int j =1; j<512; j++)
         {
             if(ibit[j] == 0)
             {
@@ -635,8 +635,9 @@ Dir_Create(char *path)
                 
                 //find the first available data block in data bitmap
                 Disk_Read(2,databit);
-                for(int k=0, k<512, k++)
+                for(int k=0; k<512; k++)
                 {
+                    int x;
                     if(databit[k] == 0)
                     {
                         databit[k] = 1;//change the found data block occupied in data bitmap
@@ -644,7 +645,7 @@ Dir_Create(char *path)
                         
                         //find the data block we found,first starts at 128
                         Disk_Read(k+128,datablock);
-                        int x = 0;
+                        x = 0;
                         while(x<sizeof(path)-slash_index-1)
                         {
                             datablock[x] = path[x+slash_index+1];
@@ -661,7 +662,7 @@ Dir_Create(char *path)
                     
                     //now write the information(entry) in the parent datablock
                     Disk_Read((n+6)/2,parent_inode_block);
-                    for(int w = 2, w<32, w++)
+                    for(int w = 2; w<32; w++)
                     {
                         if((n+6)%2 == 0)
                         {
@@ -672,7 +673,7 @@ Dir_Create(char *path)
                             Disk_Read((parent_inode_block[w+256]),parent_data_block);
                         }
                         int counter = 0;
-                        for (int q = 0, q<512,q++)
+                        for (int q = 0; q<512; q++)
                         {
                             if (parent_data_block[q] == "\0");
                             {
@@ -748,7 +749,7 @@ Dir_Size(char *path)
     
     //slash_num is 1 here because we are tracking the current directory, not the parent's
     char ibuf[512];
-    for (int i = 1, i<sizeof(path)+1,i++)
+    for (int i = 1; i<sizeof(path)+1; i++)
     {
         if(path[i] = "/")
         {
@@ -756,12 +757,13 @@ Dir_Size(char *path)
         }
     }
     
+    int n;
     while (slash_num>0)
     {
-        int n = Dir_Check(parent_inode,slash_index,path);
+        n = Dir_Check(parent_inode,slash_index,path);
         if(n!=-1)
         {
-            for (int i = slash_index, i<sizeof(path),i++)
+            for (int i = slash_index; i<sizeof(path); i++)
             {
                 if(path[i+1] = "/")
                 {
@@ -778,7 +780,7 @@ Dir_Size(char *path)
     
     //read the directory inode block
     Disk_Read((n+6)/2,ibuf);
-    if((n+6)%2=0)
+    if((n+6)%2 == 0)
     {
         return (ibuf[0]);//return the size if it starts at the beginning of the sector
     }
@@ -802,10 +804,11 @@ Dir_Read(char *path, void *buffer, int size)
     }
     else
     {
+        int n;
         int parent_inode = 0;
         int slash_num = 1, slash_index = 0;
         char ibuf[512];
-        for (int i = 1, i<sizeof(path)+1,i++)
+        for (int i = 1; i<sizeof(path)+1; i++)
         {
             if(path[i] = "/")
             {
@@ -815,10 +818,10 @@ Dir_Read(char *path, void *buffer, int size)
         
         while (slash_num>0)
         {
-            int n = Dir_Check(parent_inode,slash_index,path);
+            n = Dir_Check(parent_inode,slash_index,path);
             if(n!=-1)
             {
-                for (int i = slash_index, i<sizeof(path),i++)
+                for (int i = slash_index; i<sizeof(path); i++)
                 {
                     if(path[i+1] = "/")
                     {
@@ -836,15 +839,16 @@ Dir_Read(char *path, void *buffer, int size)
         //read the current directory inode block
         Disk_Read((n+6)/2,ibuf);
         int counter = 0;//use to detect the correct place in buffer
-        char databuf[]=512;
+        char databuf[512];
+        char buffer[512];
         if((n+6)%2==0)
         {
-            for(int j = 2,j<256,j++)
+            for(int j = 2; j<256; j++)
             {
                 if (ibuf[j]!=-1)
                 {
                     Disk_Read(ibuf[j],databuf);
-                    for(int k = 0, k<512, k++)
+                    for(int k = 0; k<512; k++)
                     {
                         buffer[counter+k] = databuf[k];
                         if(databuf[k+1] == "\0")
@@ -859,12 +863,12 @@ Dir_Read(char *path, void *buffer, int size)
         }
         else
         {
-            for(int j = 258,j<512,j++)
+            for(int j = 258; j<512; j++)
             {
                 if (ibuf[j]!=-1)
                 {
                     Disk_Read(ibuf[j],databuf);
-                    for(int k = 0, k<512, k++)
+                    for(int k = 0; k<512; k++)
                     {
                         buffer[counter+k] = databuf[k];
                         if(databuf[k+1] == "\0")
@@ -888,30 +892,31 @@ Dir_Read(char *path, void *buffer, int size)
 int
 Dir_Unlink(char *path)
 {
-    if(size < (Dir_Size(path)*20))
+    int n;
+    int parent_inode = 0;
+    int slash_num = 1, slash_index = 0;
+    char ibuf[512];
+    if(Dir_Size(path) < (Dir_Size(path)*20))
     {//if size is not big enough to contain enough entries
         osErrno=E_BUFFER_TOO_SMALL;
         return -1;
     }
     else
     {
-        int parent_inode = 0;
-        int slash_num = 1, slash_index = 0;
-        char ibuf[512];
-        for (int i = 1, i<sizeof(path)+1,i++)
+        for (int i = 1; i<sizeof(path)+1; i++)
         {
             if(path[i] = "/")
             {
                 slash_num+=1;
             }
         }
-        char parent_inodebuf[]=slash_num;
+        char parent_inodebuf[slash_num];
         while (slash_num>0)
         {
-            int n = Dir_Check(parent_inode,slash_index,path);
+            n = Dir_Check(parent_inode,slash_index,path);
             if(n!=-1)
             {
-                for (int i = slash_index, i<sizeof(path),i++)
+                for (int i = slash_index; i<sizeof(path); i++)
                 {
                     if(path[i+1] = "/")
                     {
@@ -935,35 +940,35 @@ Dir_Unlink(char *path)
         int x = 0;
         if((n+6)%2 == 0)
         {
-            for(int j =2, j < 256, j++)
+            for(int j =2; j < 256; j++)
             {
                 if(ibuf[j]!=-1)
                 {
                     Disk_Read(ibuf[j],databuf);
-                    for(int k = 0, k<512, k++)
+                    for(int k = 0; k<512; k++)
                     {
                         if(databuf[k] == "\0")
                         {
                             x = databuf[k+1];
                             Disk_Read((x+6)/2,additionalbuf);
-                            if((r+6)%2 == 0)
+                            if((x+6)%2 == 0)
                             {
-                                for(int r =0, r<256, r++)
+                                for(int r =0; r<256; r++)
                                 {
                                     additionalbuf[r] == -1;
                                 }
                             }
                             else
                             {
-                                for(int r =256, r<512, r++)
+                                for(int r =256; r<512; r++)
                                 {
                                     additionalbuf[r] == -1;
                                 }
                             }
-                            Disk_Write((x+6/2),addtionalbuf);
+                            Disk_Write((x+6/2),additionalbuf);
                             Disk_Read(1,additionalbuf);
                             additionalbuf[x] = 0;
-                            Disk_Write(1,addtionalbuf);
+                            Disk_Write(1,additionalbuf);
                         }
                         databuf[k]=0;
                     }
@@ -976,35 +981,35 @@ Dir_Unlink(char *path)
         }
         else
         {
-            for(int j =258, j < 512, j++)
+            for(int j =258; j < 512; j++)
             {
                 if(ibuf[j]!=-1)
                 {
                     Disk_Read(ibuf[j],databuf);
-                    for(int k = 0, k<512, k++)
+                    for(int k = 0; k<512; k++)
                     {
                         if(databuf[k] == "\0")
                         {
                             x = databuf[k+1];
                             Disk_Read((x+6)/2,additionalbuf);
-                            if((r+6)%2 == 0)
+                            if((x+6)%2 == 0)
                             {
-                                for(int r =0, r<256, r++)
+                                for(int r =0; r<256; r++)
                                 {
                                     additionalbuf[r] == -1;
                                 }
                             }
                             else
                             {
-                                for(int r =256, r<512, r++)
+                                for(int r =256; r<512; r++)
                                 {
                                     additionalbuf[r] == -1;
                                 }
                             }
-                            Disk_Write((x+6/2),addtionalbuf);
+                            Disk_Write((x+6/2),additionalbuf);
                             Disk_Read(1,additionalbuf);
                             additionalbuf[x] = 0;
-                            Disk_Write(1,addtionalbuf);
+                            Disk_Write(1,additionalbuf);
                         }
                         databuf[k]=0;
                     }
@@ -1046,19 +1051,19 @@ Dir_Unlink(char *path)
 
 
 //this function takes a buffer contain parent_inode number, the original length of the parent_inode buffer, and the index of data block our new directory is in
-void
-Dir_Inode_Size_Add(char* parent_inode,  int n,int b)
+int
+Dir_Inode_Size_Add(char* parent_inode,int n ,int b)
 {
     char buffer[256];
     //This function find the outmost parent inode block
-    Disk_Read((parent_inode[n]+6)/2),buffer);
+    Disk_Read(((parent_inode[n]+6)/2),buffer);
     if((parent_inode[n]+6)%2==0)
     {
         buffer[0] += 1;
         //add size 1 to the outmost parent inode block
         if(n == 1)
         {//saying this is the inmost parent block
-            for(int a = 2,a<256,a++)
+            for(int a = 2; a<256; a++)
             {//we find the first untaken space
                 if(buffer[a] == -1)
                 {
@@ -1072,9 +1077,9 @@ Dir_Inode_Size_Add(char* parent_inode,  int n,int b)
     else
     {
         buffer[256] += 1;
-        if n == 1
+        if (n == 1)
         {
-            for(int a = 2+256,a<512,a++)
+            for(int a = 2+256; a<512; a++)
             {
                 if(buffer[a] == -1)
                 {
@@ -1091,17 +1096,18 @@ Dir_Inode_Size_Add(char* parent_inode,  int n,int b)
     {//there are more than one parent left inside the buffer
         Dir_Inode_Size_Add(parent_inode, n,b);
     }
+    return 0;
 }
 
 
 
 
-void
+int
 Dir_Inode_Size_Reduce(char* parent_inode,  int n)
 {
     char buffer[256];
     //This function find the outmost parent inode block
-    Disk_Read((parent_inode[n]+6)/2),buffer);
+    Disk_Read(((parent_inode[n]+6)/2),buffer);
     if((parent_inode[n]+6)%2==0)
     {
         buffer[0] -= 1;
@@ -1115,8 +1121,9 @@ Dir_Inode_Size_Reduce(char* parent_inode,  int n)
     n -= 1;//reduce the parent size by 1
     if(n>1)
     {//there are more than one parent left inside the buffer
-        Dir_Inode_Size_Add(parent_inode, n);
+        Dir_Inode_Size_Reduce(parent_inode, n);
     }
+    return 0;
 }
 
 
