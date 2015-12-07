@@ -18,11 +18,9 @@ char* globalPath;
 
 int MAX_FILES = 1000;
 int MAX_FILES_COUNTER = 0;
-//char OPEN_FILE_TABLE[] = 256;
 int OPEN_FILE_TABLE_COUNTER = 0;
 
 char* Dir_path;
-
 
 enum FILETABLE { ft_int , ft_int2 , ft_filepath , ft_int3 , ft_filename};
 struct FTAble{
@@ -36,13 +34,209 @@ struct FTAble{
     };
 }OPEN_FILE_TABLE[256];
 
+
+// directory ops
+// We made Dir_Inode_size_Add, Dir_Inode_size_Reduce, and Dir_Check for speeding up various things and we reuse various parts of code from them in the file functions
+
+
+//this function takes a buffer contain parent_inode number, the original length of the parent_inode buffer, and the index of data block our new directory is in
+int
+Dir_Inode_Size_Add(char* parent_inode,int n ,int b)
+{
+    char buffer[512];
+    //This function find the outmost parent inode block
+    Disk_Read(((parent_inode[n]+6)/2),buffer);
+    if((parent_inode[n]+6)%2==0)
+    {
+        buffer[0] += 1;
+        //add size 1 to the outmost parent inode block
+        if(n == 1)
+        {//saying this is the inmost parent block
+            for(int a = 2; a<256; a++)
+            {//we find the first untaken space
+                if(buffer[a] == -1)
+                {
+                    buffer[a] = b+128;//write down the block number of its child
+                    break;
+                }
+            }
+            Disk_Write((parent_inode[n]+6)/2,buffer);
+        }
+    }
+    else
+    {
+        buffer[256] += 1;
+        if (n == 1)
+        {
+            for(int a = 2+256; a<512; a++)
+            {
+                if(buffer[a] == -1)
+                {
+                    buffer[a] = b+128;
+                    break;
+                }
+            }
+        }
+        
+        Disk_Write((parent_inode[n]+6)/2,buffer);
+    }
+    n -= 1;//reduce the parent size by 1
+    if(n>1)
+    {//there are more than one parent left inside the buffer
+        Dir_Inode_Size_Add(parent_inode, n,b);
+    }
+    return 0;
+}
+
+
+int
+Dir_Inode_Size_Reduce(char* parent_inode,  int n)
+{
+    char buffer[512];
+    //This function find the outmost parent inode block
+    Disk_Read(((parent_inode[n]+6)/2),buffer);
+    if((parent_inode[n]+6)%2==0)
+    {
+        buffer[0] -= 1;
+        //subtract size 1 to the outmost parent inode block
+    }
+    else
+    {
+        buffer[256] += 1;
+        Disk_Write((parent_inode[n]+6)/2,buffer);
+    }
+    n -= 1;//reduce the parent size by 1
+    if(n>1)
+    {//there are more than one parent left inside the buffer
+        Dir_Inode_Size_Reduce(parent_inode, n);
+    }
+    return 0;
+}
+
+
+///Summary
+/*
+ 
+ This Dir check takes three arguments
+ One is the index of slash
+ One is the parent inode number
+ And one is the path
+ 
+ int x = parent inode
+ int d = slash index
+ path = path
+ 
+ */
+
+
+int
+Dir_Check(int d,int x,char* path){
+    
+    
+    char inode[512], dblock[512];
+    
+    
+    //because each sector has two inode blocks, and there are 3 sectors in front of inode blocks, we find which sector our inode block is in
+    int entry_start = 0;
+    //declare an int to track which index in the parent datablock should we compare
+    
+    Disk_Read((d+6)/2,inode);
+    if(d%2 == 0)
+    {//this tells us our inode block start at the beginning of the sector
+        Disk_Read(inode[2],dblock);
+    }
+    else//this means our inode block starts at the middle of the sector
+    {
+        Disk_Read(inode[258],dblock);
+    }
+    for(int i = 0; i<512; i++)
+    {
+        if((char)dblock[i] == '\0')
+        {
+            entry_start = i+2;
+            break;
+        }
+    }
+    
+    int k = 0;
+    while(dblock[entry_start] != 0)
+    {
+        if(dblock[entry_start+k] == path[k+x+1])
+        {
+            if((k+x+1+1) ==sizeof(path))
+            {
+                return dblock[entry_start + 16];
+            }
+            k++;
+            if ((char)path[k+x+1] == '/')
+            {
+                return dblock[entry_start + 16];
+            }
+        }
+        else
+        {
+            entry_start += 20;
+        }
+        
+    }
+    
+    if(dblock[entry_start] == 0)
+    {
+        return -1;
+    }
+    return 0;
+}
+
 int
 FS_Boot(char *path)
 {
     globalPath = path;
-    printf("This is the first boot command: FS_Boot %s\n", path);
-    if(path == NULL){//when path doesn't exist
-        // oops, check for errors
+    
+    
+    //Creating a array to store path inside, this was because we were attempting to get things working and were having trouble
+    char CharacterArrayOfPath [(sizeof(path)/sizeof(char))];
+    for(int i = 0; path[i] != '\0'; i++){
+        CharacterArrayOfPath[i] = path[i];
+    }
+    
+    
+    // Print statements testings things
+    //printf("Character Array is: %s\n", CharacterArrayOfPath);
+    //printf("The path is: %s\n", path);
+    //printf("Disk_load will return what: %i\n", Disk_Load(path));
+    
+    
+    // Creating an integer for storing the return value of Disk_Load which can be used to tell if the disk can be loaded or not
+    int w = 0;
+    w = Disk_Load(path);
+    if(w == 0){
+        // If true then load the disk other and check the required information
+        char rbuf[512];
+        Disk_Load(path);
+        if (sizeof(path) == 512*1000) {//check the disk file size
+            Disk_Read(0,rbuf);
+            if(rbuf[0]!= 7){//check the superblock information
+                osErrno = E_GENERAL;
+                return -1;
+            }
+        }
+        else{
+            osErrno = E_GENERAL;
+            return -1;
+        }
+        
+    }
+    else{
+        
+        // More print statements for testing
+        // If Disk_Load returned -1 then we need to create the disk as one doesn't exist yet
+        
+        //printf("We are inside the else of boot\n");
+        
+        // Checking to see if Disk_Init() is working corretly
+        int z = 0;
+        z = Disk_Init();
+        printf("The disk init is: %i\n", z);
         if (Disk_Init() == -1) {
             printf("Disk_Init() failed\n");
             osErrno = E_GENERAL;
@@ -56,6 +250,8 @@ FS_Boot(char *path)
         wbuf[0]=7;
         //Write the super blcok
         Disk_Write(0, wbuf);
+        
+        printf("Disk_write is returning: %i\n", Disk_Write(0,wbuf));
         
         //initialize all of the inode blocks and give them value of -1
         char ibuf[512];//declare a buffer to use for inode block and "/" construction
@@ -83,8 +279,8 @@ FS_Boot(char *path)
         ibuf[1]=1;
         ibuf[2]=0;
         Disk_Write(3,ibuf);
-        //change the first inode block, size 0 and type directory, pointing to datablock 128
         
+        //change the first inode block, size 0 and type directory, pointing to datablock 128
         //construct directory "/" in data block
         Disk_Read(2,ibuf);
         ibuf[0]=1;
@@ -94,30 +290,8 @@ FS_Boot(char *path)
         ibuf[1] = '\0';
         ibuf[2] = 0;
         //change the first data block, name "/" and pointing to inodeblock 0
-        
         Disk_Save(path);//save the disk file
         Disk_Load(path);//load it again
-        
-        
-    }
-    else{//when the disk file is already created
-        
-        printf("If path is not null!!!!!! \n");
-        
-        char rbuf[512];
-        Disk_Load(path);
-        if (sizeof(path) == 512*1000) {//check the disk file size
-            Disk_Read(0,rbuf);
-            if(rbuf[0]!=7){//check the superblock information
-                osErrno = E_GENERAL;
-                return -1;
-            }
-        }
-        else{
-            osErrno = E_GENERAL;
-            return -1;
-        }
-        
     }
     return 0;
 }
@@ -126,7 +300,8 @@ FS_Boot(char *path)
 int
 FS_Sync()
 {
-    printf("FS_Sync\n");
+    printf("We are inside FS_Sync\n");
+    printf("Global path is: %s\n", globalPath);
     if(Disk_Save(globalPath) == 0){//check if the disk save sucessfully
         if(Disk_Load(globalPath) == -1){//check if the disk load sucessfully
             osErrno = E_GENERAL;
@@ -144,6 +319,7 @@ FS_Sync()
 int
 File_Create(char *file)
 {
+    
     int slash_index = 1;
     int slash_num = 1;
     int n = 0;
@@ -244,7 +420,7 @@ File_Create(char *file)
                         
                         datablock[x+1] = '\0';
                         //write a "\0" to indicate the end of the name
-                        datablock[x+2] =j;
+                        datablock[x+2] = j;
                         //refer this datablock back to the inode block number
                         Disk_Write(k+128,datablock);
                     }
@@ -335,23 +511,16 @@ int
 File_Open(char *file)
 {
     int NumberOfTimesFileIsOpen = 0;
-    
     int slash_index = 1;
     int slash_num = 1;
     int slash_num_Parent = 0;
     int FileInode = 0;
     int ParentFileInode;
-    
-    
     char inode[512], dblock[512], parent_data_block[512];
     //because each sector has two inode blocks, and there are 3 sectors in front of inode blocks, we find which sector our inode block is in
     int entry_start = 0;
     //declare an int to track which index in the parent datablock should we compare
-    
-    
-    
     /// This is the path look up
-    
     for ( int i =1; i<sizeof(file); i++)
     {
         if((char)file[i] == '/')
@@ -369,7 +538,6 @@ File_Open(char *file)
             }
             else
             {
-                //THis probably needs changed
                 osErrno = E_CREATE;
                 return -1;
             }
@@ -400,6 +568,12 @@ File_Open(char *file)
             }
         }
     }
+    
+    /// Summary
+    /// This is about where we stopped writing code and switched to try to make sure everything compiled.
+    /// We have almost all the information we need to add to our Open File Table that we created up at the top.
+    /// Some of the comments are for keeping track of things for ourselves and reminding ourselves what everything is.
+    
     
     
     
@@ -478,88 +652,156 @@ File_Unlink(char *file)
 }
 
 
-// directory ops
-// We made this
 
-// Int d is integer of directory
-// Int X is slash_index which is the last '/'
-// Dir_check returns the inode #
 
-///Summary
-/*
- 
- This Dir check takes three arguments
- One is the index of slash
- One is the parent inode number
- And one is the path
- 
- int x = parent inode
- int d = slash index
- path = path
- 
- */
+
 
 
 int
-Dir_Check(int d,int x,char* path){
+Dir_Size(char *path)
+{
+    printf("Dir_Size\n");
+    int parent_inode = 0;
+    int slash_num = 1, slash_index = 0;
     
-    
-    char inode[512], dblock[512];
-    
-    
-    //because each sector has two inode blocks, and there are 3 sectors in front of inode blocks, we find which sector our inode block is in
-    int entry_start = 0;
-    //declare an int to track which index in the parent datablock should we compare
-    
-    Disk_Read((d+6)/2,inode);
-    if(d%2 == 0)
-    {//this tells us our inode block start at the beginning of the sector
-        Disk_Read(inode[2],dblock);
-    }
-    else//this means our inode block starts at the middle of the sector
+    //slash_num is 1 here because we are tracking the current directory, not the parent's
+    char ibuf[512];
+    for (int i = 1; i<sizeof(path)+1; i++)
     {
-        Disk_Read(inode[258],dblock);
-    }
-    for(int i = 0; i<512; i++)
-    {
-        if((char)dblock[i] == '\0')
+        if((char)path[i] == '/')
         {
-            entry_start = i+2;
-            break;
+            slash_num+=1;
         }
     }
     
-    int k = 0;
-    while(dblock[entry_start] != 0)
+    int n = 0;
+    while (slash_num>0)
     {
-        if(dblock[entry_start+k] == path[k+x+1])
+        n = Dir_Check(parent_inode,slash_index,path);
+        if(n!=-1)
         {
-            if((k+x+1+1) ==sizeof(path))
+            for (int i = slash_index; i<sizeof(path); i++)
             {
-                return dblock[entry_start + 16];
+                if((char)path[i+1] == '/')
+                {
+                    slash_index = i;
+                    slash_num -= 1;
+                    break;
+                }
             }
-            k++;
-            if ((char)path[k+x+1] == '/')
+            
+            //when the first "/" is found, we track the inode number of the directory before this slash
+            parent_inode = n;
+        }
+    }
+    
+    //read the directory inode block
+    Disk_Read((n+6)/2,ibuf);
+    if((n+6)%2 == 0)
+    {
+        return (ibuf[0]);//return the size if it starts at the beginning of the sector
+    }
+    else
+    {
+        return(ibuf[256]);//return the size if it starts at the middile of the sector
+    }
+}
+
+
+int
+Dir_Read(char *path, void *buffer, int size)
+{
+    
+    //find the inode number of the path
+    if(size < (Dir_Size(path)*20))
+    {
+        //if size is not big enough to contain enough entries
+        osErrno=E_BUFFER_TOO_SMALL;
+        return -1;
+    }
+    else
+    {
+        int n =0;
+        int parent_inode = 0;
+        int slash_num = 1, slash_index = 0;
+        char ibuf[512];
+        for (int i = 1; i<sizeof(path)+1; i++)
+        {
+            if((char)path[i] == '/')
             {
-                return dblock[entry_start + 16];
+                slash_num+=1;
+            }
+        }
+        
+        while (slash_num>0)
+        {
+            n = Dir_Check(parent_inode,slash_index,path);
+            if(n!=-1)
+            {
+                for (int i = slash_index; i<sizeof(path); i++)
+                {
+                    if((char)path[i+1] == '/')
+                    {
+                        slash_index = i;
+                        slash_num -= 1;
+                        break;
+                    }
+                }
+                parent_inode = n;
+            }
+        }
+        
+        
+        
+        //read the current directory inode block
+        Disk_Read((n+6)/2,ibuf);
+        int counter = 0;//use to detect the correct place in buffer
+        char databuf[512];
+        char buffer[512];
+        if((n+6)%2==0)
+        {
+            for(int j = 2; j<256; j++)
+            {
+                if (ibuf[j]!=-1)
+                {
+                    Disk_Read(ibuf[j],databuf);
+                    for(int k = 0; k<512; k++)
+                    {
+                        buffer[counter+k] = databuf[k];
+                        if((char)databuf[k+1] == '\0')
+                        {
+                            buffer[counter+16] = databuf[k+2];
+                            counter+=20;
+                            break;
+                        }
+                    }
+                }
             }
         }
         else
         {
-            entry_start += 20;
+            for(int j = 258; j<512; j++)
+            {
+                if (ibuf[j]!=-1)
+                {
+                    Disk_Read(ibuf[j],databuf);
+                    for(int k = 0; k<512; k++)
+                    {
+                        buffer[counter+k] = databuf[k];
+                        if((char)databuf[k+1] == '\0')
+                        {
+                            buffer[counter+16] = databuf[k+2];
+                            counter+=20;
+                            break;
+                        }
+                    }
+                }
+            }
         }
         
     }
-    
-    if(dblock[entry_start] == 0)
-    {
-        return -1;
-    }
     return 0;
 }
-
-
-
 
 int
 Dir_Create(char *path)
@@ -736,154 +978,6 @@ Dir_Create(char *path)
 }
 
 
-int
-Dir_Size(char *path)
-{
-    printf("Dir_Size\n");
-    int parent_inode = 0;
-    int slash_num = 1, slash_index = 0;
-    
-    //slash_num is 1 here because we are tracking the current directory, not the parent's
-    char ibuf[512];
-    for (int i = 1; i<sizeof(path)+1; i++)
-    {
-        if((char)path[i] == '/')
-        {
-            slash_num+=1;
-        }
-    }
-    
-    int n = 0;
-    while (slash_num>0)
-    {
-        n = Dir_Check(parent_inode,slash_index,path);
-        if(n!=-1)
-        {
-            for (int i = slash_index; i<sizeof(path); i++)
-            {
-                if((char)path[i+1] == '/')
-                {
-                    slash_index = i;
-                    slash_num -= 1;
-                    break;
-                }
-            }
-            
-            //when the first "/" is found, we track the inode number of the directory before this slash
-            parent_inode = n;
-        }
-    }
-    
-    //read the directory inode block
-    Disk_Read((n+6)/2,ibuf);
-    if((n+6)%2 == 0)
-    {
-        return (ibuf[0]);//return the size if it starts at the beginning of the sector
-    }
-    else
-    {
-        return(ibuf[256]);//return the size if it starts at the middile of the sector
-    }
-}
-
-
-int
-Dir_Read(char *path, void *buffer, int size)
-{
-    
-    //find the inode number of the path
-    if(size < (Dir_Size(path)*20))
-    {
-        //if size is not big enough to contain enough entries
-        osErrno=E_BUFFER_TOO_SMALL;
-        return -1;
-    }
-    else
-    {
-        int n =0;
-        int parent_inode = 0;
-        int slash_num = 1, slash_index = 0;
-        char ibuf[512];
-        for (int i = 1; i<sizeof(path)+1; i++)
-        {
-            if((char)path[i] == '/')
-            {
-                slash_num+=1;
-            }
-        }
-        
-        while (slash_num>0)
-        {
-            n = Dir_Check(parent_inode,slash_index,path);
-            if(n!=-1)
-            {
-                for (int i = slash_index; i<sizeof(path); i++)
-                {
-                    if((char)path[i+1] == '/')
-                    {
-                        slash_index = i;
-                        slash_num -= 1;
-                        break;
-                    }
-                }
-                parent_inode = n;
-            }
-        }
-        
-        
-        
-        //read the current directory inode block
-        Disk_Read((n+6)/2,ibuf);
-        int counter = 0;//use to detect the correct place in buffer
-        char databuf[512];
-        char buffer[512];
-        if((n+6)%2==0)
-        {
-            for(int j = 2; j<256; j++)
-            {
-                if (ibuf[j]!=-1)
-                {
-                    Disk_Read(ibuf[j],databuf);
-                    for(int k = 0; k<512; k++)
-                    {
-                        buffer[counter+k] = databuf[k];
-                        if((char)databuf[k+1] == '\0')
-                        {
-                            buffer[counter+16] = databuf[k+2];
-                            counter+=20;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        else
-        {
-            for(int j = 258; j<512; j++)
-            {
-                if (ibuf[j]!=-1)
-                {
-                    Disk_Read(ibuf[j],databuf);
-                    for(int k = 0; k<512; k++)
-                    {
-                        buffer[counter+k] = databuf[k];
-                        if((char)databuf[k+1] == '\0')
-                        {
-                            buffer[counter+16] = databuf[k+2];
-                            counter+=20;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        
-    }
-    return 0;
-}
-
-
-
 
 int
 Dir_Unlink(char *path)
@@ -1046,80 +1140,3 @@ Dir_Unlink(char *path)
     printf("Dir_Unlink\n");
     return 0;
 }
-
-//this function takes a buffer contain parent_inode number, the original length of the parent_inode buffer, and the index of data block our new directory is in
-int
-Dir_Inode_Size_Add(char* parent_inode,int n ,int b)
-{
-    char buffer[512];
-    //This function find the outmost parent inode block
-    Disk_Read(((parent_inode[n]+6)/2),buffer);
-    if((parent_inode[n]+6)%2==0)
-    {
-        buffer[0] += 1;
-        //add size 1 to the outmost parent inode block
-        if(n == 1)
-        {//saying this is the inmost parent block
-            for(int a = 2; a<256; a++)
-            {//we find the first untaken space
-                if(buffer[a] == -1)
-                {
-                    buffer[a] = b+128;//write down the block number of its child
-                    break;
-                }
-            }
-            Disk_Write((parent_inode[n]+6)/2,buffer);
-        }
-    }
-    else
-    {
-        buffer[256] += 1;
-        if (n == 1)
-        {
-            for(int a = 2+256; a<512; a++)
-            {
-                if(buffer[a] == -1)
-                {
-                    buffer[a] = b+128;
-                    break;
-                }
-            }
-        }
-        
-        Disk_Write((parent_inode[n]+6)/2,buffer);
-    }
-    n -= 1;//reduce the parent size by 1
-    if(n>1)
-    {//there are more than one parent left inside the buffer
-        Dir_Inode_Size_Add(parent_inode, n,b);
-    }
-    return 0;
-}
-
-
-
-
-int
-Dir_Inode_Size_Reduce(char* parent_inode,  int n)
-{
-    char buffer[512];
-    //This function find the outmost parent inode block
-    Disk_Read(((parent_inode[n]+6)/2),buffer);
-    if((parent_inode[n]+6)%2==0)
-    {
-        buffer[0] -= 1;
-        //subtract size 1 to the outmost parent inode block
-    }
-    else
-    {
-        buffer[256] += 1;
-        Disk_Write((parent_inode[n]+6)/2,buffer);
-    }
-    n -= 1;//reduce the parent size by 1
-    if(n>1)
-    {//there are more than one parent left inside the buffer
-        Dir_Inode_Size_Reduce(parent_inode, n);
-    }
-    return 0;
-}
-
